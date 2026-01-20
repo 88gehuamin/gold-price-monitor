@@ -360,8 +360,11 @@
                 // 发送API请求
                 const response = await fetch(API_CONFIG.url, {
                     method: API_CONFIG.method,
-                    headers: API_CONFIG.headers,
-                    body: params
+                    headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Authorization': 'APPCODE 5dcab84c524e4b28a4bae561ab0efb70' // 注意这里是 APPCODE，不是 AppCode
+},
+                    body: 'symbol=AUTD'
                 });
                 
                 if (!response.ok) {
@@ -615,3 +618,4 @@
     </script>
 </body>
 </html>
+
