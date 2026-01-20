@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>黄金价格实时监测</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #FFD700 0%, #D4AF37 100%);
+            color: #333;
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+        
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+        
+        .price-display {
+            padding: 30px 20px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .current-price {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .change {
+            font-size: 1.2rem;
+            padding: 8px 16px;
+            border-radius: 50px;
+            display: inline-block;
+        }
+        
+        .change.up {
+            background-color: rgba(76, 175, 80, 0.1);
+            color: #2e7d32;
+        }
+        
+        .change.down {
+            background-color: rgba(244, 67, 54, 0.1);
+            color: #c62828;
+        }
+        
+        .time {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+        
+        .alert-settings {
+            padding: 25px;
+        }
+        
+        .section-title {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .setting-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .setting-item label {
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input[type="number"] {
+            width: 100px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            text-align: center;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .alerts-list {
+            margin-top: 20px;
+        }
+        
+        .alert-item {
+            background: #e8f5e9;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .alert-item .remove {
+            color: #c62828;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .instructions {
+            background: #e3f2fd;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #1565c0;
+        }
+        
+        .instructions ol {
+            padding-left: 20px;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .current-price {
+                font-size: 2.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💰 黄金价格监测</h1>
+            <div class="subtitle">实时追踪国际金价</div>
+        </div>
+        
+        <div class="price-display">
+            <div class="current-price" id="currentPrice">--.--</div>
+            <div class="change" id="priceChange">
+                <span id="changeAmount">--</span>
+                <span id="changePercent">(--%)</span>
+            </div>
+            <div class="time" id="updateTime">最后更新：--:--:--</div>
+        </div>
+        
+        <div class="alert-settings">
+            <div class="section-title">价格提醒设置</div>
+            
+            <div class="setting-item">
+                <label>当价格变化超过 (%)：</label>
+                <input type="number" id="alertPercent" min="0.1" max="20" step="0.1" value="1.0">
+            </div>
+            
+            <div class="setting-item">
+                <label>监测间隔 (分钟)：</label>
+                <input type="number" id="checkInterval" min="1" max="60" value="5">
+            </div>
+            
+            <button id="saveSettings">保存设置</button>
+            
+            <div class="alerts-list" id="alertsList">
+                <!-- 提醒记录会显示在这里 -->
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>如何添加到手机桌面？</h3>
+            <ol>
+                <li><strong>iPhone用户</strong>：点击分享按钮 → 添加到主屏幕</li>
+                <li><strong>Android用户</strong>：点击菜单按钮 → 添加到主屏幕</li>
+                <li>启用浏览器通知权限以接收提醒</li>
+                <li>建议开启后台刷新功能</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // 配置数据源（使用多个免费API提高可靠性）
+        const API_SOURCES = [
+            {
+                name: 'GoldAPI',
+                url: 'https://api.metals.live/v1/spot/gold',
+                parse: data => data[0]?.price
+            },
+            {
+                name: 'MetalPrices',
+                url: 'https://api.metalpriceapi.com/v1/latest?api_key=demo&base=XAU&currencies=USD',
+                parse: data => 1 / data.rates.USD * 31.1035 // 转换逻辑
+            }
+        ];
+
+        // 全局变量
+        let currentPrice = 0;
+        let lastPrice = 0;
+        let priceHistory = [];
+        let alertSettings = {
+            percent: 1.0,
+            interval: 5
+        };
+        let activeAlerts = [];
+        let updateInterval;
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSettings();
+            initializePriceCheck();
+            setupEventListeners();
+            requestNotificationPermission();
+        });
+
+        // 加载设置
+        function loadSettings() {
+            const saved = localStorage.getItem('goldAlertSettings');
+            if (saved) {
+                alertSettings = JSON.parse(saved);
+                document.getElementById('alertPercent').value = alertSettings.percent;
+                document.getElementById('checkInterval').value = alertSettings.interval;
+            }
+            
+            const savedAlerts = localStorage.getItem('goldAlerts');
+            if (savedAlerts) {
+                activeAlerts = JSON.parse(savedAlerts);
+                updateAlertsList();
+            }
+        }
+
+        // 保存设置
+        function saveSettings() {
+            alertSettings.percent = parseFloat(document.getElementById('alertPercent').value);
+            alertSettings.interval = parseInt(document.getElementById('checkInterval').value);
+            
+            localStorage.setItem('goldAlertSettings', JSON.stringify(alertSettings));
+            
+            // 重新设置定时器
+            clearInterval(updateInterval);
+            initializePriceCheck();
+            
+            showMessage('设置已保存！', 'success');
+        }
+
+        // 初始化价格检查
+        function initializePriceCheck() {
+            // 立即获取一次价格
+            fetchGoldPrice();
+            
+            // 设置定时器
+            const intervalMinutes = alertSettings.interval;
+            updateInterval = setInterval(fetchGoldPrice, intervalMinutes * 60 * 1000);
+        }
+
+        // 获取黄金价格
+        async function fetchGoldPrice() {
+            try {
+                // 尝试多个数据源
+                for (const source of API_SOURCES) {
+                    try {
+                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(source.url)}`);
+                        const data = await response.json();
+                        const parsed = JSON.parse(data.contents);
+                        
+                        const price = source.parse(parsed);
+                        if (price && price > 0) {
+                            updatePriceDisplay(price);
+                            checkAlerts(price);
+                            return;
+                        }
+                    } catch (error) {
+                        console.log(`API ${source.name} 失败:`, error);
+                        continue;
+                    }
+                }
+                
+                // 如果所有API都失败，使用模拟数据
+                useMockData();
+                
+            } catch (error) {
+                console.error('获取价格失败:', error);
+                useMockData();
+            }
+        }
+
+        // 使用模拟数据（当API不可用时）
+        function useMockData() {
+            // 生成一个合理的模拟价格
+            if (currentPrice === 0) {
+                currentPrice = 1950 + Math.random() * 50;
+            } else {
+                // 模拟小幅波动
+                const change = (Math.random() - 0.5) * 10;
+                currentPrice += change;
+            }
+            
+            updatePriceDisplay(currentPrice);
+            checkAlerts(currentPrice);
+            
+            showMessage('使用模拟数据，实际使用时请配置API', 'info');
+        }
+
+        // 更新价格显示
+        function updatePriceDisplay(price) {
+            lastPrice = currentPrice;
+            currentPrice = price;
+            
+            // 更新显示
+            document.getElementById('currentPrice').textContent = `$${price.toFixed(2)}`;
+            
+            // 计算变化
+            if (lastPrice > 0) {
+                const change = price - lastPrice;
+                const percent = (change / lastPrice * 100).toFixed(2);
+                
+                const changeEl = document.getElementById('priceChange');
+                const amountEl = document.getElementById('changeAmount');
+                const percentEl = document.getElementById('changePercent');
+                
+                amountEl.textContent = change >= 0 ? `+${change.toFixed(2)}` : change.toFixed(2);
+                percentEl.textContent = `(${percent}%)`;
+                
+                if (change >= 0) {
+                    changeEl.className = 'change up';
+                    changeEl.innerHTML = `↑ ${amountEl.outerHTML} ${percentEl.outerHTML}`;
+                } else {
+                    changeEl.className = 'change down';
+                    changeEl.innerHTML = `↓ ${amountEl.outerHTML} ${percentEl.outerHTML}`;
+                }
+            }
+            
+            // 更新时间
+            const now = new Date();
+            document.getElementById('updateTime').textContent = 
+                `最后更新：${now.toLocaleTimeString('zh-CN')}`;
+            
+            // 记录历史
+            priceHistory.push({
+                time: now,
+                price: price
+            });
+            
+            // 只保留最近50条记录
+            if (priceHistory.length > 50) {
+                priceHistory.shift();
+            }
+        }
+
+        // 检查提醒
+        function checkAlerts(price) {
+            if (lastPrice === 0 || priceHistory.length < 2) return;
+            
+            const changePercent = Math.abs((price - lastPrice) / lastPrice * 100);
+            
+            if (changePercent >= alertSettings.percent) {
+                const direction = price > lastPrice ? '上涨' : '下跌';
+                const message = `黄金价格${direction}了${changePercent.toFixed(2)}%，当前价格：$${price.toFixed(2)}`;
+                
+                // 添加提醒记录
+                const alert = {
+                    time: new Date().toLocaleString('zh-CN'),
+                    message: message,
+                    price: price,
+                    change: changePercent
+                };
+                
+                activeAlerts.push(alert);
+                if (activeAlerts.length > 10) activeAlerts.shift();
+                
+                localStorage.setItem('goldAlerts', JSON.stringify(activeAlerts));
+                updateAlertsList();
+                
+                // 显示通知
+                showNotification(message);
+                showMessage(message, 'alert');
+            }
+        }
+
+        // 更新提醒列表
+        function updateAlertsList() {
+            const listEl = document.getElementById('alertsList');
+            listEl.innerHTML = '';
+            
+            if (activeAlerts.length === 0) {
+                listEl.innerHTML = '<div class="alert-item">暂无提醒记录</div>';
+                return;
+            }
+            
+            // 按时间倒序显示
+            const reversed = [...activeAlerts].reverse();
+            
+            reversed.forEach((alert, index) => {
+                const alertEl = document.createElement('div');
+                alertEl.className = 'alert-item';
+                alertEl.innerHTML = `
+                    <div>
+                        <div style="font-weight: 500;">${alert.message}</div>
+                        <div style="font-size: 0.8rem; color: #666;">${alert.time}</div>
+                    </div>
+                    <div class="remove" onclick="removeAlert(${reversed.length - 1 - index})">×</div>
+                `;
+                listEl.appendChild(alertEl);
+            });
+        }
+
+        // 移除提醒
+        function removeAlert(index) {
+            activeAlerts.splice(index, 1);
+            localStorage.setItem('goldAlerts', JSON.stringify(activeAlerts));
+            updateAlertsList();
+        }
+
+        // 显示通知
+        function showNotification(message) {
+            if (!("Notification" in window)) return;
+            
+            if (Notification.permission === "granted") {
+                new Notification("📈 黄金价格提醒", {
+                    body: message,
+                    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='gold'/><circle cx='50' cy='50' r='30' fill='orange'/></svg>"
+                });
+            }
+        }
+
+        // 请求通知权限
+        function requestNotificationPermission() {
+            if (!("Notification" in window)) {
+                console.log("此浏览器不支持通知");
+                return;
+            }
+            
+            if (Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        }
+
+        // 显示消息
+        function showMessage(text, type) {
+            // 创建消息元素
+            const messageEl = document.createElement('div');
+            messageEl.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'success' ? '#4CAF50' : type === 'alert' ? '#FF9800' : '#2196F3'};
+                color: white;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                z-index: 1000;
+                animation: slideIn 0.3s ease;
+                max-width: 300px;
+            `;
+            
+            messageEl.textContent = text;
+            document.body.appendChild(messageEl);
+            
+            // 3秒后移除
+            setTimeout(() => {
+                messageEl.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => {
+                    document.body.removeChild(messageEl);
+                }, 300);
+            }, 3000);
+        }
+
+        // 添加CSS动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            document.getElementById('saveSettings').addEventListener('click', saveSettings);
+            
+            // 手动刷新按钮
+            const refreshBtn = document.createElement('button');
+            refreshBtn.textContent = '立即刷新价格';
+            refreshBtn.style.marginTop = '15px';
+            refreshBtn.style.background = 'linear-gradient(135deg, #2196F3 0%, #0D47A1 100%)';
+            refreshBtn.addEventListener('click', fetchGoldPrice);
+            
+            document.querySelector('.alert-settings').appendChild(refreshBtn);
+        }
+    </script>
+</body>
+</html>
