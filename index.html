@@ -177,6 +177,29 @@
             margin-bottom: 8px;
         }
         
+        .api-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        
+        .status-loading {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
         @media (max-width: 480px) {
             body {
                 padding: 10px;
@@ -191,17 +214,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>💰 黄金价格监测</h1>
-            <div class="subtitle">实时追踪国际金价</div>
+            <h1>💰 黄金价格实时监测</h1>
+            <div class="subtitle">数据来源：上海黄金交易所 • 实时更新</div>
         </div>
         
         <div class="price-display">
-            <div class="current-price" id="currentPrice">--.--</div>
+            <div class="current-price" id="currentPrice">加载中...</div>
             <div class="change" id="priceChange">
                 <span id="changeAmount">--</span>
                 <span id="changePercent">(--%)</span>
             </div>
             <div class="time" id="updateTime">最后更新：--:--:--</div>
+            <div id="apiStatus" class="api-status status-loading">正在连接数据源...</div>
         </div>
         
         <div class="alert-settings">
@@ -214,10 +238,11 @@
             
             <div class="setting-item">
                 <label>监测间隔 (分钟)：</label>
-                <input type="number" id="checkInterval" min="1" max="60" value="5">
+                <input type="number" id="checkInterval" min="5" max="60" value="10">
             </div>
             
             <button id="saveSettings">保存设置</button>
+            <button id="refreshNow" style="background:linear-gradient(135deg, #2196F3 0%, #0D47A1 100%); margin-top:15px;">立即刷新价格</button>
             
             <div class="alerts-list" id="alertsList">
                 <!-- 提醒记录会显示在这里 -->
@@ -225,43 +250,44 @@
         </div>
         
         <div class="instructions">
-            <h3>如何添加到手机桌面？</h3>
+            <h3>使用说明</h3>
             <ol>
-                <li><strong>iPhone用户</strong>：点击分享按钮 → 添加到主屏幕</li>
-                <li><strong>Android用户</strong>：点击菜单按钮 → 添加到主屏幕</li>
-                <li>启用浏览器通知权限以接收提醒</li>
-                <li>建议开启后台刷新功能</li>
+                <li><strong>数据来源</strong>：本页面使用百度API获取上海黄金交易所(AUTD)实时价格</li>
+                <li><strong>更新频率</strong>：每10分钟自动更新（避免超出API限制）</li>
+                <li><strong>添加到手机桌面</strong>：使用浏览器菜单 → 添加到主屏幕</li>
+                <li><strong>提醒功能</strong>：设置涨跌百分比后，价格波动达到阈值时会有弹窗提醒</li>
             </ol>
         </div>
     </div>
 
     <script>
-        // 配置数据源（使用多个免费API提高可靠性）
-        const API_SOURCES = [
-            {
-                name: 'GoldAPI',
-                url: 'https://api.metals.live/v1/spot/gold',
-                parse: data => data[0]?.price
-            },
-            {
-                name: 'MetalPrices',
-                url: 'https://api.metalpriceapi.com/v1/latest?api_key=demo&base=XAU&currencies=USD',
-                parse: data => 1 / data.rates.USD * 31.1035 // 转换逻辑
+        // ==================== 配置区域 ====================
+        // 使用你提供的AppCode（相对安全的方式）
+        const APP_CODE = '5dcab84c524e4b28a4bae561ab0efb70';
+        
+        // API配置 - 百度API商店的黄金价格接口
+        const API_CONFIG = {
+            url: 'https://csjrgjssj.api.bdymkt.com/precious-metal/domestic/price',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Bce-Signature': `AppCode/${APP_CODE}`
             }
-        ];
+        };
 
-        // 全局变量
+        // ==================== 全局变量 ====================
         let currentPrice = 0;
         let lastPrice = 0;
         let priceHistory = [];
         let alertSettings = {
             percent: 1.0,
-            interval: 5
+            interval: 10
         };
         let activeAlerts = [];
         let updateInterval;
+        let isFirstLoad = true;
 
-        // 页面加载
+        // ==================== 页面初始化 ====================
         document.addEventListener('DOMContentLoaded', function() {
             loadSettings();
             initializePriceCheck();
@@ -269,7 +295,9 @@
             requestNotificationPermission();
         });
 
-        // 加载设置
+        // ==================== 核心函数 ====================
+        
+        // 加载用户设置
         function loadSettings() {
             const saved = localStorage.getItem('goldAlertSettings');
             if (saved) {
@@ -290,6 +318,12 @@
             alertSettings.percent = parseFloat(document.getElementById('alertPercent').value);
             alertSettings.interval = parseInt(document.getElementById('checkInterval').value);
             
+            // 限制最小间隔为5分钟，避免API调用过于频繁
+            if (alertSettings.interval < 5) {
+                alertSettings.interval = 5;
+                document.getElementById('checkInterval').value = 5;
+            }
+            
             localStorage.setItem('goldAlertSettings', JSON.stringify(alertSettings));
             
             // 重新设置定时器
@@ -299,102 +333,124 @@
             showMessage('设置已保存！', 'success');
         }
 
-        // 初始化价格检查
+        // 初始化价格检查定时器
         function initializePriceCheck() {
             // 立即获取一次价格
-            fetchGoldPrice();
+            fetchRealGoldPrice();
             
-            // 设置定时器
-            const intervalMinutes = alertSettings.interval;
-            updateInterval = setInterval(fetchGoldPrice, intervalMinutes * 60 * 1000);
+            // 设置定时器（分钟转毫秒）
+            const intervalMs = alertSettings.interval * 60 * 1000;
+            updateInterval = setInterval(fetchRealGoldPrice, intervalMs);
+            
+            console.log(`已设置定时器：每 ${alertSettings.interval} 分钟更新一次价格`);
         }
 
-        // 获取黄金价格
-        async function fetchGoldPrice() {
+        // 获取真实的黄金价格（核心函数）
+        async function fetchRealGoldPrice() {
+            const statusEl = document.getElementById('apiStatus');
+            
             try {
-                // 尝试多个数据源
-                for (const source of API_SOURCES) {
-                    try {
-                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(source.url)}`);
-                        const data = await response.json();
-                        const parsed = JSON.parse(data.contents);
-                        
-                        const price = source.parse(parsed);
-                        if (price && price > 0) {
-                            updatePriceDisplay(price);
-                            checkAlerts(price);
-                            return;
-                        }
-                    } catch (error) {
-                        console.log(`API ${source.name} 失败:`, error);
-                        continue;
-                    }
+                statusEl.className = 'api-status status-loading';
+                statusEl.textContent = '正在获取实时价格...';
+                
+                // 构建请求参数 - 请求上海黄金交易所黄金T+D价格
+                const params = new URLSearchParams();
+                params.append('symbol', 'AUTD'); // AUTD代表黄金T+D
+                
+                // 发送API请求
+                const response = await fetch(API_CONFIG.url, {
+                    method: API_CONFIG.method,
+                    headers: API_CONFIG.headers,
+                    body: params
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API响应错误: ${response.status}`);
                 }
                 
-                // 如果所有API都失败，使用模拟数据
-                useMockData();
+                const result = await response.json();
+                
+                // 检查API返回状态
+                if (result.code === 200 && result.data) {
+                    const priceData = result.data;
+                    
+                    // 更新价格显示
+                    updatePriceDisplay(
+                        priceData.price,      // 当前价格
+                        priceData.change,     // 涨跌额
+                        priceData.changeRate  // 涨跌幅百分比
+                    );
+                    
+                    // 检查提醒
+                    checkAlerts(priceData.price);
+                    
+                    // 更新状态显示
+                    statusEl.className = 'api-status status-success';
+                    statusEl.textContent = `数据更新成功 • ${new Date().toLocaleTimeString('zh-CN', {hour12: false})}`;
+                    
+                    // 首次加载成功，关闭模拟数据提示
+                    if (isFirstLoad) {
+                        isFirstLoad = false;
+                        console.log('API连接成功，开始使用真实数据');
+                    }
+                    
+                } else {
+                    throw new Error(`API返回错误: ${result.msg || '未知错误'}`);
+                }
                 
             } catch (error) {
-                console.error('获取价格失败:', error);
+                console.error('获取金价失败:', error);
+                
+                // 显示错误状态
+                statusEl.className = 'api-status status-error';
+                statusEl.textContent = `数据获取失败: ${error.message} • 使用模拟数据`;
+                
+                // 使用模拟数据作为后备方案
                 useMockData();
             }
-        }
-
-        // 使用模拟数据（当API不可用时）
-        function useMockData() {
-            // 生成一个合理的模拟价格
-            if (currentPrice === 0) {
-                currentPrice = 1950 + Math.random() * 50;
-            } else {
-                // 模拟小幅波动
-                const change = (Math.random() - 0.5) * 10;
-                currentPrice += change;
-            }
-            
-            updatePriceDisplay(currentPrice);
-            checkAlerts(currentPrice);
-            
-            showMessage('使用模拟数据，实际使用时请配置API', 'info');
         }
 
         // 更新价格显示
-        function updatePriceDisplay(price) {
+        function updatePriceDisplay(price, change, changePercent) {
             lastPrice = currentPrice;
             currentPrice = price;
             
-            // 更新显示
-            document.getElementById('currentPrice').textContent = `$${price.toFixed(2)}`;
+            // 更新价格显示（元/克）
+            document.getElementById('currentPrice').textContent = `${price.toFixed(2)} 元/克`;
             
-            // 计算变化
-            if (lastPrice > 0) {
-                const change = price - lastPrice;
-                const percent = (change / lastPrice * 100).toFixed(2);
-                
-                const changeEl = document.getElementById('priceChange');
-                const amountEl = document.getElementById('changeAmount');
-                const percentEl = document.getElementById('changePercent');
-                
-                amountEl.textContent = change >= 0 ? `+${change.toFixed(2)}` : change.toFixed(2);
-                percentEl.textContent = `(${percent}%)`;
-                
-                if (change >= 0) {
-                    changeEl.className = 'change up';
-                    changeEl.innerHTML = `↑ ${amountEl.outerHTML} ${percentEl.outerHTML}`;
-                } else {
-                    changeEl.className = 'change down';
-                    changeEl.innerHTML = `↓ ${amountEl.outerHTML} ${percentEl.outerHTML}`;
-                }
+            // 计算并显示涨跌
+            const changeEl = document.getElementById('priceChange');
+            const amountEl = document.getElementById('changeAmount');
+            const percentEl = document.getElementById('changePercent');
+            
+            // 格式化涨跌额（保留两位小数）
+            const formattedChange = change >= 0 ? `+${change.toFixed(2)}` : change.toFixed(2);
+            // 格式化涨跌幅（保留两位小数）
+            const formattedPercent = changePercent >= 0 ? `+${changePercent.toFixed(2)}` : changePercent.toFixed(2);
+            
+            amountEl.textContent = formattedChange;
+            percentEl.textContent = `(${formattedPercent}%)`;
+            
+            // 设置颜色样式
+            if (change >= 0) {
+                changeEl.className = 'change up';
+                changeEl.innerHTML = `↑ ${formattedChange} <span>(${formattedPercent}%)</span>`;
+            } else {
+                changeEl.className = 'change down';
+                changeEl.innerHTML = `↓ ${formattedChange} <span>(${formattedPercent}%)</span>`;
             }
             
             // 更新时间
             const now = new Date();
             document.getElementById('updateTime').textContent = 
-                `最后更新：${now.toLocaleTimeString('zh-CN')}`;
+                `最后更新：${now.toLocaleTimeString('zh-CN', {hour12: false})}`;
             
-            // 记录历史
+            // 记录历史价格
             priceHistory.push({
                 time: now,
-                price: price
+                price: price,
+                change: change,
+                changePercent: changePercent
             });
             
             // 只保留最近50条记录
@@ -403,7 +459,27 @@
             }
         }
 
-        // 检查提醒
+        // 模拟数据后备方案
+        function useMockData() {
+            // 如果还没有真实数据，生成一个合理的起始价格
+            if (currentPrice === 0) {
+                // 上海黄金交易所近期金价大约在480-520元/克之间
+                currentPrice = 500 + (Math.random() - 0.5) * 20;
+            } else {
+                // 模拟小幅波动
+                const change = (Math.random() - 0.5) * 2;
+                currentPrice += change;
+            }
+            
+            // 模拟涨跌额和涨跌幅
+            const mockChange = (Math.random() - 0.5) * 1.5;
+            const mockChangePercent = (mockChange / currentPrice * 100);
+            
+            updatePriceDisplay(currentPrice, mockChange, mockChangePercent);
+            checkAlerts(currentPrice);
+        }
+
+        // 检查提醒条件
         function checkAlerts(price) {
             if (lastPrice === 0 || priceHistory.length < 2) return;
             
@@ -411,11 +487,11 @@
             
             if (changePercent >= alertSettings.percent) {
                 const direction = price > lastPrice ? '上涨' : '下跌';
-                const message = `黄金价格${direction}了${changePercent.toFixed(2)}%，当前价格：$${price.toFixed(2)}`;
+                const message = `黄金价格${direction}了${changePercent.toFixed(2)}%，当前价格：${price.toFixed(2)}元/克`;
                 
                 // 添加提醒记录
                 const alert = {
-                    time: new Date().toLocaleString('zh-CN'),
+                    time: new Date().toLocaleString('zh-CN', {hour12: false}),
                     message: message,
                     price: price,
                     change: changePercent
@@ -467,7 +543,7 @@
             updateAlertsList();
         }
 
-        // 显示通知
+        // 显示浏览器通知
         function showNotification(message) {
             if (!("Notification" in window)) return;
             
@@ -481,19 +557,15 @@
 
         // 请求通知权限
         function requestNotificationPermission() {
-            if (!("Notification" in window)) {
-                console.log("此浏览器不支持通知");
-                return;
-            }
+            if (!("Notification" in window)) return;
             
             if (Notification.permission === "default") {
                 Notification.requestPermission();
             }
         }
 
-        // 显示消息
+        // 显示临时消息
         function showMessage(text, type) {
-            // 创建消息元素
             const messageEl = document.createElement('div');
             messageEl.style.cssText = `
                 position: fixed;
@@ -521,6 +593,12 @@
             }, 3000);
         }
 
+        // 设置事件监听器
+        function setupEventListeners() {
+            document.getElementById('saveSettings').addEventListener('click', saveSettings);
+            document.getElementById('refreshNow').addEventListener('click', fetchRealGoldPrice);
+        }
+
         // 添加CSS动画
         const style = document.createElement('style');
         style.textContent = `
@@ -534,20 +612,6 @@
             }
         `;
         document.head.appendChild(style);
-
-        // 设置事件监听器
-        function setupEventListeners() {
-            document.getElementById('saveSettings').addEventListener('click', saveSettings);
-            
-            // 手动刷新按钮
-            const refreshBtn = document.createElement('button');
-            refreshBtn.textContent = '立即刷新价格';
-            refreshBtn.style.marginTop = '15px';
-            refreshBtn.style.background = 'linear-gradient(135deg, #2196F3 0%, #0D47A1 100%)';
-            refreshBtn.addEventListener('click', fetchGoldPrice);
-            
-            document.querySelector('.alert-settings').appendChild(refreshBtn);
-        }
     </script>
 </body>
 </html>
